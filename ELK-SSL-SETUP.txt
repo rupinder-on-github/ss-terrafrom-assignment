@@ -1,0 +1,166 @@
+[master-1]
+52.12.72.215 
+172.31.126.40
+c5eb6b836a1c.mylabserver.com
+[data-1]
+35.85.29.157
+58875a8fc51c.mylabserver.com
+[data-2]
+52.40.108.173
+7f5dc420381c.mylabserver.com
+[node-1]
+35.85.51.232
+2600:1f14:ec4:9800:e55b:f9be:c7d4:a051
+2Andolankari@dilli
+~~~~~~~~~~~~~~~~~~~~~Installation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~`
+sudo useradd elastic 
+sudo vi /etc/security/limits.conf
+  elastic - nofile 65536  // _get thsi Value from Elastic search documentation 
+sudo vi  /etc/sysctl.conf  
+  vm.max_map_count = 262144  // _get thsi Value from Elastic search documentation 
+Sudo sysctl -p  // Load the updated Value 
+
+sudo su - elastic
+
+curl -O https://artifacts.elastic.co/downloads/elasticsearch/elasticsearch-7.15.1-linux-x86_64.tar.gz 
+
+tar -xzvf elasticsearch-7.15.1-linux-x86_64.tar.gz
+
+rm -f elasticsearch-7.15.1-linux-x86_64.tar.gz
+
+mv elasticsearch-7.15.1 elasticsearch 
+~~~~~~~~~~~~~~COnfigure Nodes~~~~~~~~~~~~~~~~~~~~~~~~~~ JVM and elasticsearch.yaml
+
+[elastic@c5eb6b836a1c ~]$ cat elasticsearch//config/elasticsearch.yml | grep -v "#"
+cluster.name: c1
+node.name: master-1
+network.host:[_local_,_site_]
+cluster.initial_master_nodes: ["master-1"]
+node.master: true
+node.data: false
+node.ingest: false
+
+~~~~~~~~~~~~~~~~~~Node 1~~~~~~~~~~~~~~~~~~~
+cluster.name: c1
+node.name: data-1
+node.attr.zone: 1
+node.attr.temp: hot
+network.host: [_local_,_site_]
+discovery.seed_hosts: [172.31.126.40]
+cluster.initial_master_nodes: [master-1]
+node.master: false
+node.data: true
+node.ingest: false
+~~~~~~~~~~~~~~~~~~`Node -2 ~~~~~~~~~~~~~~~~~~~
+
+cluster.name: c1
+node.name: data-2
+node.attr.zone: 1
+node.attr.temp: warm
+network.host: [_local,_site_]
+discovery.seed_hosts: [172.31.126.40]
+cluster.initial_master_nodes: [master-1]
+node.data: true
+node.master: false
+node.ingest: false
+
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~Start the elastic search and record the PID ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+ ./elasticsearch/bin/elasticsearch -d -p pid
+
+
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Check nodes :--
+
+[elastic@c5eb6b836a1c elasticsearch]$ curl localhost:9200/_cat/nodes?v
+ip             heap.percent ram.percent cpu load_1m load_5m load_15m node.role master name
+172.31.126.40            22          83   1    0.00    0.18     0.74 lmr       *      master-1
+172.31.115.223           29          96   3    0.10    0.30     0.22 cdfhlrstw -      data-1
+172.31.113.158           48          96   5    0.10    0.19     0.13 cdfhlrstw -      data-2
+
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~INSTALL KIBANA as ES setup is complete and validated~~~~~~~~~~~~~~```
+curl -O https://artifacts.elastic.co/downloads/kibana/kibana-7.15.1-linux-x86_64.tar.gz
+
+Make minimal configuration 
+
+server.port: 80
+
+server.host: "172.31.126.40"
+
+~~~~~~~~~~~~~~~~~~~~~~SSL configuration~~~~~~~~~~~~~~~~~~~~~~~
+
+  /home/elastic/elasticsearch/bin/elasticsearch-certutil ca --out config/certs/ca --pass elastic_la
+
+
+
+ /home/elastic/elasticsearch/bin/elasticsearch-certutil cert --ca config/certs/ca --ca-pass elastic_la --name master-1 --out config/certs/master-1 --pass elastic_la
+ 
+  /home/elastic/elasticsearch/bin/elasticsearch-certutil cert --ca config/certs/ca --ca-pass elastic_la --name data-1 --out config/certs/data-1 --pass elastic_la
+
+ /home/elastic/elasticsearch/bin/elasticsearch-certutil cert --ca config/certs/ca --ca-pass elastic_la --name data-2 --out config/certs/data-2 --pass elastic_la
+  /home/elastic/elasticsearch/bin/elasticsearch-certutil cert --ca config/certs/ca --ca-pass elastic_la --name node-1 --out config/certs/node-1 --pass elastic_la
+  
+ Copy the certs to all  the nodes :::::::::::::::;
+ 
+ Create trust and key store to store the password :::
+ 
+///////////////////////////Only for reference 
+xpack.security.transport.ssl.enabled: true
+xpack.security.transport.ssl.verification_mode: certificate 
+xpack.security.transport.ssl.client_authentication: required
+xpack.security.transport.ssl.keystore.path: elastic-certificates.p12
+xpack.security.transport.ssl.truststore.path: elastic-certificates.p12
+////////////////////////////Only for refernce 
+echo "elastic_la"| /home/elastic/elasticsearch/bin/elasticsearch-keystore  add  xpack.security.transport.ssl.keystore.secure_password
+echo "elastic_la"| /home/elastic/elasticsearch/bin/elasticsearch-keystore  add  xpack.security.transport.ssl.truststore.secure_password
+echo "elastic_la"| /home/elastic/elasticsearch/bin/elasticsearch-keystore  add  xpack.security.http.ssl.keystore.secure_password
+echo "elastic_la"| /home/elastic/elasticsearch/bin/elasticsearch-keystore  add  xpack.security.http.ssl.truststore.secure_password
+ 
+ 
+ xpack.security.enabled: true 
+ xpack.security.transport.ssl.enabled : true
+ xpack.security.transport.ssl.verification_mode: certificate
+ xpack.security.transport.ssl.keystore.path: certs/data-1
+ xpack.security.transport.ssl.truststore.path: certs/data-1
+ 
+
+Assign password 
+
+../bin/elasticsearch-setup-passwords interactive
+ 
+Enter password for [apm_system]:
+Reenter password for [apm_system]:
+Enter password for [kibana_system]:
+Reenter password for [kibana_system]:
+Enter password for [logstash_system]:
+Reenter password for [logstash_system]:
+Enter password for [beats_system]:
+Reenter password for [beats_system]:
+Enter password for [remote_monitoring_user]:
+Reenter password for [remote_monitoring_user]:
+Changed password for user [apm_system]  -- apmsystem
+Changed password for user [kibana_system]
+Changed password for user [kibana]
+Changed password for user [logstash_system]
+Changed password for user [beats_system]  beatssystem
+Changed password for user [remote_monitoring_user]  remote
+Changed password for user [elastic] elastic
+
+~~~~~~~~~~~~~~~~~~~~~~~~~~~ADD client authentication to config file 
+xpack.security.http.ssl.enabled : true
+xpack.security.http.ssl.keystore.path: certs/master-1
+xpack.security.http.ssl.truststore.path: certs/master-1
+
+
+~~~~~~~~~~~~~~~~~~~Make changes on Kibana side ~~~~~~~~~~~~```
+
+
+
+ 
+ 
+
+
+ 
+
+
+  
